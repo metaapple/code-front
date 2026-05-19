@@ -1,0 +1,66 @@
+name: Node CI
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+    branches: ["main", "master"]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm install
+
+      - name: Check Node app starts
+        working-directory: web
+        run: |
+          node server.js &
+          APP_PID=$!
+          sleep 5
+          curl -f http://localhost:3000/health
+          kill $APP_PID
+        env:
+          PORT: 3000
+          REDIS_URL: redis://localhost:6379/0
+
+  docker-compose-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Build Docker Compose services
+        run: docker compose build
+
+      - name: Start Docker Compose services
+        run: docker compose up -d
+
+      - name: Check health endpoint
+        run: |
+          for i in {1..20}; do
+            if curl -f http://localhost:9092/health; then
+              exit 0
+            fi
+            sleep 3
+          done
+          docker compose logs
+          exit 1
+
+      - name: Stop Docker Compose services
+        if: always()
+        run: docker compose down -v
